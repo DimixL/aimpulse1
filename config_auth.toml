@@ -1,0 +1,9 @@
+[cookie]
+name = "aimpulse_auth"
+key = "some_secret_key"
+expiry_days = 30
+
+[credentials.usernames.user1]
+email = "user1@example.com"
+name = "Инженер"
+password = "admin"
