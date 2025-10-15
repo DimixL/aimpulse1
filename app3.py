@@ -159,17 +159,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---- AUTH --- простой fallback ----
+# ---- AUTH --- единый контроллер входа в сайдбаре ----
 USE_ADV_AUTH = False
 name = "Инженер"
 
-# общий placeholder под логин-блок (чтобы убирать его после входа)
-login_box = st.sidebar.container()
+# контейнер под форму/кнопку в сайдбаре
+auth_box = st.sidebar.container()
 
 try:
     import streamlit_authenticator as stauth
     import toml
-    import streamlit as st
 
     config = toml.load("config_auth.toml")
     authenticator = stauth.Authenticate(
@@ -179,10 +178,10 @@ try:
         config['cookie']['expiry_days']
     )
 
-    # Рендер логина ТОЛЬКО пока не вошли
+    # login в САЙДБАРЕ (новый API: location первым)
     try:
         name, auth_status, username = authenticator.login(
-            'main',
+            'sidebar',
             fields={
                 'Form name': 'Вход',
                 'Username': 'Логин',
@@ -191,47 +190,53 @@ try:
             }
         )
     except TypeError:
-        # fallback для старого API
-        name, auth_status, username = authenticator.login('Вход', 'main')
+        # старые версии lib
+        with auth_box:
+            name, auth_status, username = authenticator.login('Вход', 'sidebar')
 
+    # не вошли — стопаем ран
     if auth_status is not True:
         if auth_status is False:
             st.error('Неверный логин/пароль')
         st.stop()
 
-    # Успешный вход: подчистим возможные хвосты логин-бокса и покажем только logout
-    login_box.empty()
-    try:
-        with st.sidebar:
-            authenticator.logout('sidebar')
-    except TypeError:
-        with st.sidebar:
-            authenticator.logout('Выйти', 'sidebar')
+    # успешный вход → чистим форму и показываем только Logout
+    auth_box.empty()
+    with st.sidebar:
+        try:
+            logout_btn = authenticator.logout('sidebar')
+        except TypeError:
+            logout_btn = authenticator.logout('Выйти', 'sidebar')
+
+    # одноразовый rerun сразу после логина, чтобы «хвосты» не мигали
+    if not st.session_state.get("_auth_refreshed", False):
+        st.session_state["_auth_refreshed"] = True
+        st.rerun()
 
     USE_ADV_AUTH = True
 
 except ModuleNotFoundError:
-    # -------- ПРОСТОЙ FALLBACK-ЛОГИН --------
+    # -------- ПРОСТОЙ FALLBACK (ручная форма) --------
     st.session_state.setdefault("auth_ok", False)
 
     if not st.session_state["auth_ok"]:
-        with login_box:
+        with auth_box:
             st.subheader("Вход")
             user = st.text_input("Логин", value="user1")
             pwd = st.text_input("Пароль", type="password", value="admin")
             if st.button("Войти"):
                 if user == "user1" and pwd == "admin":
                     st.session_state["auth_ok"] = True
-                    login_box.empty()   # убрать форму мгновенно
+                    auth_box.empty()
                     st.rerun()
                 else:
                     st.error("Неверный логин/пароль")
-        st.stop()  # пока не вошли — дальше ничего не рисуем
+        st.stop()
     else:
-        # уже вошли: логин-блок чист, показываем ТОЛЬКО «Выйти»
-        login_box.empty()
+        auth_box.empty()
         if st.sidebar.button("Выйти"):
             st.session_state["auth_ok"] = False
+            st.session_state["_auth_refreshed"] = False
             st.rerun()
 
 # --- Sidebar: профиль / справка ---
