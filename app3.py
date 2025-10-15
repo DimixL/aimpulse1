@@ -159,86 +159,116 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Красная кнопка сразу после маркера .demo-btn в САЙДБАРЕ */
+[data-testid="stSidebar"] .demo-btn + div.stButton > button {
+  background:#ef4444 !important; color:#fff !important; border-color:#ef4444 !important;
+}
+[data-testid="stSidebar"] .demo-btn + div.stButton > button:hover {
+  background:#dc2626 !important; border-color:#dc2626 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ---- AUTH --- единый контроллер входа в сайдбаре ----
 USE_ADV_AUTH = False
 name = "Инженер"
 
-# контейнер под форму/кнопку в сайдбаре
 auth_box = st.sidebar.container()
+st.session_state.setdefault("demo_auth", False)
 
-try:
-    import streamlit_authenticator as stauth
-    import toml
-
-    config = toml.load("config_auth.toml")
-    authenticator = stauth.Authenticate(
-        config['credentials'],
-        config['cookie']['name'],
-        config['cookie']['key'],
-        config['cookie']['expiry_days']
-    )
-
-    # login в САЙДБАРЕ (новый API: location первым)
-    try:
-        name, auth_status, username = authenticator.login(
-            'sidebar',
-            fields={
-                'Form name': 'Вход',
-                'Username': 'Логин',
-                'Password': 'Пароль',
-                'Login': 'Войти'
-            }
-        )
-    except TypeError:
-        # старые версии lib
-        with auth_box:
-            name, auth_status, username = authenticator.login('Вход', 'sidebar')
-
-    # не вошли — стопаем ран
-    if auth_status is not True:
-        if auth_status is False:
-            st.error('Неверный логин/пароль')
-        st.stop()
-
-    # успешный вход → чистим форму и показываем только Logout
-    auth_box.empty()
-    with st.sidebar:
-        try:
-            logout_btn = authenticator.logout('sidebar')
-        except TypeError:
-            logout_btn = authenticator.logout('Выйти', 'sidebar')
-
-    # одноразовый rerun сразу после логина, чтобы «хвосты» не мигали
-    if not st.session_state.get("_auth_refreshed", False):
-        st.session_state["_auth_refreshed"] = True
-        st.rerun()
-
-    USE_ADV_AUTH = True
-
-except ModuleNotFoundError:
-    # -------- ПРОСТОЙ FALLBACK (ручная форма) --------
-    st.session_state.setdefault("auth_ok", False)
-
-    if not st.session_state["auth_ok"]:
-        with auth_box:
-            st.subheader("Вход")
-            user = st.text_input("Логин", value="user1")
-            pwd = st.text_input("Пароль", type="password", value="admin")
-            if st.button("Войти"):
-                if user == "user1" and pwd == "admin":
-                    st.session_state["auth_ok"] = True
-                    auth_box.empty()
-                    st.rerun()
-                else:
-                    st.error("Неверный логин/пароль")
-        st.stop()
+# --- DEMO ВХОД в сайдбаре ---
+with st.sidebar:
+    # маркер, по которому красим следующую кнопку (см. CSS выше)
+    st.markdown('<div class="demo-btn"></div>', unsafe_allow_html=True)
+    if not st.session_state["demo_auth"]:
+        if st.button("🔴 ДЕМО ВХОД", key="demo_btn", use_container_width=True):
+            st.session_state["demo_auth"] = True
+            st.session_state["user_name"] = "Демо-пользователь"
+            st.rerun()
     else:
-        auth_box.empty()
-        if st.sidebar.button("Выйти"):
-            st.session_state["auth_ok"] = False
-            st.session_state["_auth_refreshed"] = False
+        if st.button("Выйти (демо)", key="demo_logout_btn", use_container_width=True):
+            st.session_state["demo_auth"] = False
             st.rerun()
 
+# Если активен демо-режим — пропускаем любую внешнюю аутентификацию
+if st.session_state["demo_auth"]:
+    USE_ADV_AUTH = True
+    name = "Демо-пользователь"
+
+else:
+    try:
+        import streamlit_authenticator as stauth
+        import toml
+
+        config = toml.load("config_auth.toml")
+        authenticator = stauth.Authenticate(
+            config['credentials'],
+            config['cookie']['name'],
+            config['cookie']['key'],
+            config['cookie']['expiry_days']
+        )
+
+        # Новый API: ЯВНО указываем location=, чтобы точно уйти в sidebar.
+        try:
+            name, auth_status, username = authenticator.login(
+                location='sidebar',
+                fields={
+                    'Form name': 'Вход',
+                    'Username': 'Логин',
+                    'Password': 'Пароль',
+                    'Login': 'Войти'
+                }
+            )
+        except TypeError:
+            # Старый API (form_name, location)
+            with auth_box:
+                name, auth_status, username = authenticator.login('Вход', 'sidebar')
+
+        if auth_status is not True:
+            if auth_status is False:
+                st.error('Неверный логин/пароль')
+            st.stop()
+
+        # успешный вход → показываем только logout
+        auth_box.empty()
+        with st.sidebar:
+            try:
+                authenticator.logout('sidebar')
+            except TypeError:
+                authenticator.logout('Выйти', 'sidebar')
+
+        # одноразовый rerun после логина, чтобы не мигали старые виджеты
+        if not st.session_state.get("_auth_refreshed", False):
+            st.session_state["_auth_refreshed"] = True
+            st.rerun()
+
+        USE_ADV_AUTH = True
+
+    except ModuleNotFoundError:
+        # -------- ПРОСТОЙ FALLBACK --------
+        st.session_state.setdefault("auth_ok", False)
+        if not st.session_state["auth_ok"]:
+            with auth_box:
+                st.subheader("Вход")
+                user = st.text_input("Логин", value="user1")
+                pwd = st.text_input("Пароль", type="password", value="admin")
+                if st.button("Войти"):
+                    if user == "user1" and pwd == "admin":
+                        st.session_state["auth_ok"] = True
+                        auth_box.empty()
+                        st.rerun()
+                    else:
+                        st.error("Неверный логин/пароль")
+            st.stop()
+        else:
+            auth_box.empty()
+            if st.sidebar.button("Выйти"):
+                st.session_state["auth_ok"] = False
+                st.session_state["_auth_refreshed"] = False
+                st.rerun()
+                
 # --- Sidebar: профиль / справка ---
 display_name = name if USE_ADV_AUTH else st.session_state.get("user_name", "Иван Иванов")
 with st.sidebar:
