@@ -161,38 +161,38 @@ st.markdown("""
 
 st.markdown("""
 <style>
-/* Красная кнопка сразу после маркера .demo-btn в САЙДБАРЕ */
-[data-testid="stSidebar"] .demo-btn + div.stButton > button {
+/* Красные demo-кнопки: и в САЙДБАРЕ (.demo-btn), и в ОСНОВНОЙ ОБЛАСТИ (.demo-main) */
+[data-testid="stSidebar"] .demo-btn + div.stButton > button,
+.demo-main + div.stButton > button {
   background:#ef4444 !important; color:#fff !important; border-color:#ef4444 !important;
 }
-[data-testid="stSidebar"] .demo-btn + div.stButton > button:hover {
+[data-testid="stSidebar"] .demo-btn + div.stButton > button:hover,
+.demo-main + div.stButton > button:hover {
   background:#dc2626 !important; border-color:#dc2626 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---- AUTH --- единый контроллер входа в сайдбаре ----
+# ---- AUTH --- логин в ЦЕНТРЕ, logout в САЙДБАРЕ ----
 USE_ADV_AUTH = False
 name = "Инженер"
 
-auth_box = st.sidebar.container()
 st.session_state.setdefault("demo_auth", False)
 
-# --- DEMO ВХОД в сайдбаре ---
+# --- DEMO ВХОД (красная кнопка) в сайдбаре ---
 with st.sidebar:
-    # маркер, по которому красим следующую кнопку (см. CSS выше)
     st.markdown('<div class="demo-btn"></div>', unsafe_allow_html=True)
     if not st.session_state["demo_auth"]:
-        if st.button("🔴 ДЕМО ВХОД", key="demo_btn", use_container_width=True):
+        if st.button("🔴 ДЕМО ВХОД", key="demo_btn_sb", use_container_width=True):
             st.session_state["demo_auth"] = True
             st.session_state["user_name"] = "Демо-пользователь"
             st.rerun()
     else:
-        if st.button("Выйти (демо)", key="demo_logout_btn", use_container_width=True):
+        if st.button("Выйти (демо)", key="demo_logout_sb", use_container_width=True):
             st.session_state["demo_auth"] = False
             st.rerun()
 
-# Если активен демо-режим — пропускаем любую внешнюю аутентификацию
+# Если активен демо-режим — пускаем внутрь без форм
 if st.session_state["demo_auth"]:
     USE_ADV_AUTH = True
     name = "Демо-пользователь"
@@ -210,36 +210,42 @@ else:
             config['cookie']['expiry_days']
         )
 
-        # Новый API: ЯВНО указываем location=, чтобы точно уйти в sidebar.
-        try:
-            name, auth_status, username = authenticator.login(
-                location='sidebar',
-                fields={
-                    'Form name': 'Вход',
-                    'Username': 'Логин',
-                    'Password': 'Пароль',
-                    'Login': 'Войти'
-                }
-            )
-        except TypeError:
-            # Старый API (form_name, location)
-            with auth_box:
-                name, auth_status, username = authenticator.login('Вход', 'sidebar')
+        # ФОРМА ЛОГИНА В ЦЕНТРЕ ОСНОВНОЙ ОБЛАСТИ + КРАСНАЯ ДЕМО-КНОПКА СРАЗУ ПОД НЕЙ
+        left, center, right = st.columns([1, 1.1, 1])
+        with center:
+            try:
+                name, auth_status, username = authenticator.login(
+                    location='main',
+                    fields={
+                        'Form name': 'Вход',
+                        'Username': 'Логин',
+                        'Password': 'Пароль',
+                        'Login': 'Войти'
+                    }
+                )
+            except TypeError:
+                name, auth_status, username = authenticator.login('Вход', 'main')
 
-        if auth_status is not True:
+            # 🔴 ДЕМО ВХОД прямо под формой
+            st.markdown('<div class="demo-main"></div>', unsafe_allow_html=True)
+            if st.button("🔴 ДЕМО ВХОД", key="demo_btn_main", use_container_width=True):
+                st.session_state["demo_auth"] = True
+                st.session_state["user_name"] = "Демо-пользователь"
+                st.rerun()
+
+        # пока не вошли — стоп (если не нажали ДЕМО выше)
+        if auth_status is not True and not st.session_state["demo_auth"]:
             if auth_status is False:
-                st.error('Неверный логин/пароль')
+                st.error("Неверный логин/пароль")
             st.stop()
 
-        # успешный вход → показываем только logout
-        auth_box.empty()
+        # если в итоге вошли — показываем Logout в сайдбаре
         with st.sidebar:
             try:
                 authenticator.logout('sidebar')
             except TypeError:
                 authenticator.logout('Выйти', 'sidebar')
 
-        # одноразовый rerun после логина, чтобы не мигали старые виджеты
         if not st.session_state.get("_auth_refreshed", False):
             st.session_state["_auth_refreshed"] = True
             st.rerun()
@@ -247,28 +253,40 @@ else:
         USE_ADV_AUTH = True
 
     except ModuleNotFoundError:
-        # -------- ПРОСТОЙ FALLBACK --------
+        # -------- ПРОСТОЙ FALLBACK (без streamlit_authenticator) --------
         st.session_state.setdefault("auth_ok", False)
+
         if not st.session_state["auth_ok"]:
-            with auth_box:
+            left, center, right = st.columns([1, 0.9, 1])
+            with center:
                 st.subheader("Вход")
-                user = st.text_input("Логин", value="user1")
-                pwd = st.text_input("Пароль", type="password", value="admin")
-                if st.button("Войти"):
+                user = st.text_input("Логин", value="user1", key="simple_user")
+                pwd = st.text_input("Пароль", type="password", value="admin", key="simple_pwd")
+                if st.button("Войти", use_container_width=True, key="simple_login"):
                     if user == "user1" and pwd == "admin":
                         st.session_state["auth_ok"] = True
-                        auth_box.empty()
+                        st.session_state["user_name"] = user
                         st.rerun()
                     else:
                         st.error("Неверный логин/пароль")
+
+                # 🔴 ДЕМО ВХОД под простой формой
+                st.markdown('<div class="demo-main"></div>', unsafe_allow_html=True)
+                if st.button("🔴 ДЕМО ВХОД", key="demo_btn_main_simple", use_container_width=True):
+                    st.session_state["demo_auth"] = True
+                    st.session_state["user_name"] = "Демо-пользователь"
+                    st.rerun()
             st.stop()
         else:
-            auth_box.empty()
-            if st.sidebar.button("Выйти"):
-                st.session_state["auth_ok"] = False
-                st.session_state["_auth_refreshed"] = False
-                st.rerun()
-                
+            # logout только в сайдбаре
+            with st.sidebar:
+                if st.button("Выйти", key="simple_logout", use_container_width=True):
+                    st.session_state["auth_ok"] = False
+                    st.session_state["_auth_refreshed"] = False
+                    st.rerun()
+            USE_ADV_AUTH = True
+            name = st.session_state.get("user_name", "Иван Иванов")
+   
 # --- Sidebar: профиль / справка ---
 display_name = name if USE_ADV_AUTH else st.session_state.get("user_name", "Иван Иванов")
 with st.sidebar:
